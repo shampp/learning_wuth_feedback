@@ -1,0 +1,512 @@
+% !TEX program = pdflatex
+\documentclass[aspectratio=169]{beamer}
+
+% =========================
+% THEME & LOOK
+% =========================
+\usetheme{Madrid}
+\usecolortheme{dolphin}
+\setbeamertemplate{navigation symbols}{}
+
+\definecolor{customblue}{RGB}{0,70,140}
+\setbeamercolor{footline}{bg=customblue,fg=white}
+\setbeamertemplate{footline}{%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=3ex,dp=1.5ex,center]{footline}
+    \usebeamerfont{footline}\insertframenumber/\inserttotalframenumber 
+    \hfill \textbf{Dr. Shameem Puthiya Parambath}
+  \end{beamercolorbox}
+}
+\usefonttheme{professionalfonts}
+
+\setbeamercolor{block title}{bg=white,fg=customblue}
+\setbeamercolor{block body}{bg=white,fg=black}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+
+% =========================
+% PACKAGES
+% =========================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts,mathtools}
+\usepackage{bm,physics,booktabs,multirow,array,colortbl,microtype}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{siunitx}
+\sisetup{round-mode=places,round-precision=2}
+\usepackage{minted} % compile with -shell-escape
+
+% =========================
+% SHORTCUTS
+% =========================
+\newcommand{\ind}{\mathbb{I}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\PP}{\mathbb{P}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\Reg}{\mathrm{Regret}}
+\newcommand{\cO}{\mathcal{O}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% =========================
+% TITLE INFO
+% =========================
+\title[Learning with (immediate) Feedback: MAB]{Introduction to Learning with (Immediate) Feedback\\\small Multi-Armed Bandits: Theory and Applications}
+\author{Dr. Shameem Puthiya Parambath}
+\institute{University of Glasgow}
+\date{}
+
+% =========================
+% SECTION OUTLINE
+% =========================
+\AtBeginSection[]{
+  \begin{frame}{Plan for this section}
+    \tableofcontents[currentsection]
+  \end{frame}
+}
+
+\begin{document}
+
+% =========================
+% TITLE & ORIENTATION
+% =========================
+\begin{frame}
+  \titlepage
+  \note{Motivate with A/B testing, recommendation, adaptive trials, DVFS, autotuning.}
+\end{frame}
+
+\begin{frame}{Roadmap}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.59\textwidth}
+    \begin{itemize}
+      \item Preliminaries (probability, sub-Gaussianity, KL \& concentration)
+      \item Online vs Offline learning
+      \item MAB framework \& regret
+      \item Optimistic: UCB family (UCB1, UCB-V, KL-UCB, MOSS)
+      \item Stochastic heuristics: $\varepsilon$-greedy, Softmax, Thompson
+      \item Adversarial: Exp3 / Exp4
+      \item Advanced: Contextual, Linear, Non-stationary, Combinatorial, Best-arm ID
+      \item Comparative performance (plots) \& ablation studies
+      \item Industry applications \& case studies
+      \item Practical tips \& pitfalls
+    \end{itemize}
+    \column{0.36\textwidth}
+    \begin{block}{Key ideas}
+      \small Explore–exploit, regret, confidence bonuses, Bayesian sampling, adversarial robustness, information via KL, variance-awareness.
+    \end{block}
+  \end{columns}
+\end{frame}
+
+% =========================
+% PRELIMINARIES
+% =========================
+\section{Mathematical Preliminaries}
+
+\begin{frame}{Random variables \& moments (beginner-friendly)}
+\small
+\textbf{Random variable:} a number produced by a random process.
+\begin{itemize}
+  \item Mean (average outcome): $\mu=\E[X]$.
+  \item Variance (spread): $\sigma^2=\Var(X)=\E[(X-\mu)^2]$.
+  \item For repeated samples $X_1,\dots,X_n$, the average $\hat{\mu}_n=\frac{1}{n}\sum X_i$ concentrates near $\mu$.
+\end{itemize}
+\begin{block}{Why we care}
+Bandit algorithms rely on averages (estimates) and \emph{how confident} we are in those averages.
+\end{block}
+\end{frame}
+
+\begin{frame}{Sub-Gaussian \& bounded rewards}
+\small
+\begin{itemize}
+  \item Rewards in bandits are often bounded: $X\in[0,1]$ (e.g., click vs no-click).
+  \item Bounded $\Rightarrow$ \textbf{sub-Gaussian}: tails decay at least as fast as a Gaussian.
+\end{itemize}
+\begin{block}{Consequence}
+Averages of bounded/sub-Gaussian rewards concentrate quickly: fewer pulls needed to know an arm is good/bad.
+\end{block}
+\end{frame}
+
+\begin{frame}{Concentration inequalities you’ll use}
+\small
+\begin{block}{Hoeffding (bounded)}
+$\PP(|\hat{\mu}_n-\mu|\ge \epsilon)\le 2\exp(-2n\epsilon^2)$.
+\end{block}
+\begin{block}{Bernstein / Empirical-Bernstein (variance-aware)}
+Tighter when variance is small; used by UCB-V.
+\end{block}
+\begin{block}{KL-based confidence (Bernoulli)}
+Use $\KL(\hat{\mu}_n\|\mu)\le c/n$ to build tighter bonuses (KL-UCB).
+\end{block}
+\end{frame}
+
+\begin{frame}{KL divergence (intuition)}
+\small
+\begin{itemize}
+  \item Measure of how different two distributions are.
+  \item Bernoulli case: $\KL(p\|q)=p\log\frac{p}{q}+(1-p)\log\frac{1-p}{1-q}$.
+  \item In bandits: tighter confidence bounds $\Rightarrow$ fewer unnecessary explorations.
+\end{itemize}
+\end{frame}
+
+% =========================
+% ONLINE VS OFFLINE
+% =========================
+\section{Online vs Offline Learning}
+\begin{frame}{Offline (batch) vs Online (interactive)}
+\begin{columns}[T,onlytextwidth]
+\column{0.5\textwidth}
+\textbf{Offline}
+\begin{itemize}
+  \item Train once on fixed data.
+  \item Assumes data stays the same (i.i.d.).
+  \item No exploration.
+\end{itemize}
+\column{0.5\textwidth}
+\textbf{Online}
+\begin{itemize}
+  \item Make decisions in rounds.
+  \item Learn from \emph{feedback you create}.
+  \item Optimize cumulative reward/regret.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+% =========================
+% MAB FRAMEWORK
+% =========================
+\section{Multi-Armed Bandit Framework}
+
+\begin{frame}{Bandit setting (beginner picture)}
+\small
+\begin{itemize}
+  \item $K$ options (arms), unknown average rewards.
+  \item Each round: pick an arm $\Rightarrow$ observe its reward only.
+  \item Goal: \textbf{earn as much as possible}, or equivalently minimize \textbf{regret}.
+\end{itemize}
+\begin{block}{Regret}
+$R_T = T\mu^* - \E\!\left[\sum_{t=1}^T X_{t,A_t}\right]$, where $\mu^*=\max_i \mu_i$.
+\end{block}
+\end{frame}
+
+\begin{frame}{Explore vs exploit (visual intuition)}
+\begin{columns}[T,onlytextwidth]
+\column{0.6\textwidth}
+\begin{itemize}
+  \item \textbf{Exploit:} use what looks best so far.
+  \item \textbf{Explore:} try uncertain arms to reduce doubt.
+  \item Need a rule to balance both!
+\end{itemize}
+\column{0.35\textwidth}
+\begin{center}
+\includegraphics[width=\linewidth]{figs/stoch_cumreward.png}
+\end{center}
+\end{columns}
+\end{frame}
+
+% =========================
+% UCB FAMILY
+% =========================
+\section{Optimistic Algorithms: UCB Family}
+
+\begin{frame}{Core idea: optimism in the face of uncertainty}
+\small
+Maintain estimate $\hat{\mu}_i$ and bonus $c_i$; play
+\[
+A_t = \arg\max_i \hat{\mu}_i + c_i.
+\]
+\begin{itemize}
+  \item Bonus is large if $n_i$ (pulls) is small $\Rightarrow$ encourages exploration.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{UCB1}
+\small
+\[
+c_i(t)=\sqrt{\frac{2\ln t}{n_i(t)}}.
+\]
+\begin{itemize}
+  \item Uses Hoeffding inequality (bounded rewards).
+  \item Regret $\cO\!\left(\sum_i \frac{\ln T}{\Delta_i}\right)$.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{UCB-V (variance-aware)}
+\small
+\[
+c_i(t)=\sqrt{\frac{2\hat{V}_i(t)\ln t}{n_i(t)}}+\frac{3\ln t}{n_i(t)}.
+\]
+Smaller variance $\Rightarrow$ smaller uncertainty $\Rightarrow$ faster exploitation.
+\end{frame}
+
+\begin{frame}{KL-UCB (Bernoulli-specific, near-optimal)}
+\small
+Find $U_i(t)$ s.t.
+\[
+\KL\!\left(\hat{\mu}_i(t)\,\middle\|\,U_i(t)\right)\le \frac{\ln t + 3\ln\ln t}{n_i(t)}.
+\]
+Tighter than Hoeffding for clicks (0/1 rewards).
+\end{frame}
+
+\begin{frame}{MOSS (minimax-optimal stochastic)}
+\small
+\[
+U_i(t)=\hat{\mu}_i(t) + \sqrt{\max\!\left\{0,\,\frac{\ln\!\left(\frac{T}{K n_i(t)}\right)}{n_i(t)}\right\}}.
+\]
+Great when $T$ is known and you want robust worst-case performance.
+\end{frame}
+
+% =========================
+% HEURISTICS & TS
+% =========================
+\section{Stochastic Heuristics}
+
+\begin{frame}{$\varepsilon$-greedy \& Softmax}
+\small
+\textbf{$\varepsilon$-greedy:} explore with prob. $\varepsilon_t$ (decay like $K/t$); else exploit.\\
+\textbf{Softmax:} pick arm $i$ with prob. $\propto \exp(\hat{\mu}_i/\tau)$; anneal $\tau\downarrow$.
+\end{frame}
+
+\begin{frame}{Thompson Sampling (Bayesian bandit)}
+\small
+\begin{itemize}
+  \item Maintain posterior over each arm’s mean.
+  \item Sample a plausible mean from each posterior; play the arm with the largest sample.
+  \item Bernoulli: Beta prior/posterior $\Rightarrow$ simple updates.
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{TS: Python snippet (Bernoulli)}
+\small
+\begin{minted}{python}
+def thompson_sampling(means, T):
+    K = len(means)
+    alpha = np.ones(K); beta = np.ones(K)
+    rewards = []
+    for t in range(T):
+        a = np.argmax(np.random.beta(alpha, beta))
+        r = np.random.binomial(1, means[a])
+        alpha[a] += r; beta[a] += 1 - r
+        rewards.append(r)
+    return np.cumsum(rewards)
+\end{minted}
+\end{frame}
+
+% =========================
+% ADVERSARIAL
+% =========================
+\section{Adversarial Bandits: Exp3/Exp4}
+
+\begin{frame}{Why adversarial?}
+\small
+\begin{itemize}
+  \item Rewards can change arbitrarily (non-stationary, even chosen by an adversary).
+  \item Compete with best fixed arm in hindsight; regret $\cO(\sqrt{TK\ln K})$ (Exp3).
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Exp3 vs UCB in adversarial data}
+\begin{center}
+\includegraphics[width=0.8\textwidth]{figs/adversarial_exp3_ucb.png}
+\end{center}
+\small Exp3 adapts; stochastic UCB (mis-specified) lags when the best arm shifts.
+\end{frame}
+
+% =========================
+% COMPARATIVE PERFORMANCE
+% =========================
+\section{Comparative Performance \& Studies}
+
+\begin{frame}{Regret comparison (stochastic)}
+\begin{center}
+\includegraphics[width=0.8\textwidth]{figs/stoch_regret.png}
+\end{center}
+\small UCB/KL-UCB/TS show $\log T$ growth; decaying $\varepsilon$-greedy is okay but weaker.
+\end{frame}
+
+\begin{frame}{Cumulative reward comparison}
+\begin{center}
+\includegraphics[width=0.8\textwidth]{figs/stoch_cumreward.png}
+\end{center}
+\small KL-UCB and TS often lead on Bernoulli clicks; UCB1 is close, $\varepsilon$-greedy trails.
+\end{frame}
+
+\begin{frame}{UCB family head-to-head}
+\begin{center}
+\includegraphics[width=0.8\textwidth]{figs/ucb_variants.png}
+\end{center}
+\small UCB-V helpful for low-variance arms; KL-UCB best for Bernoulli.
+\end{frame}
+
+\begin{frame}{Monte Carlo summary (CSV to table)}
+\small
+\begin{center}
+\begin{tabular}{l l r r}
+\toprule
+Means & Algorithm & Avg. Cum. Reward & Avg. Final Regret\\
+\midrule
+\multicolumn{2}{l}{(Loaded from figs/summary_table.csv)} & & \\
+\bottomrule
+\end{tabular}
+\end{center}
+\small (CSV generated by \texttt{scripts/generate_figs.py}; paste a subset in class handout.)
+\end{frame}
+
+% =========================
+% APPLICATIONS
+% =========================
+\section{Applications \& Case Studies}
+
+\begin{frame}{Online Advertising (Google/Meta) — CTR Maximization}
+\small
+\begin{itemize}
+  \item \textbf{Arms:} creatives; \textbf{Reward:} click (1) / no click (0).
+  \item \textbf{Cold start:} KL-UCB/TS shine with few samples.
+  \item \textbf{Real-world twists:} delayed conversions, budget caps, fairness constraints.
+\end{itemize}
+\begin{block}{Impact}
+Adaptive allocation reduces wasted impressions; faster ramp-up for good ads.
+\end{block}
+\end{frame}
+
+\begin{frame}{A/B/n Testing (Amazon-style)}
+\small
+\begin{itemize}
+  \item Fixed A/B tests can waste traffic on inferior variants.
+  \item \textbf{Banditized A/B:} early exploration, then exploit leader; stop when confident.
+  \item \textbf{Guardrails:} minimum traffic, statistical sanity checks.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Recommender Systems (Netflix)}
+\small
+\begin{itemize}
+  \item \textbf{Arms:} items to recommend; \textbf{Context:} user features, time, device.
+  \item \textbf{Contextual bandits:} LinUCB/logistic bandits integrate features for personalization.
+  \item \textbf{Cold-start items:} bandits allocate discoverability efficiently.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Healthcare (Adaptive Clinical Trials)}
+\small
+\begin{itemize}
+  \item \textbf{Arms:} treatments; \textbf{Reward:} response/survival surrogate.
+  \item \textbf{Ethics:} allocate more to promising treatments while learning.
+  \item \textbf{Challenges:} delayed outcomes, covariates, safety monitoring (DSMB).
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Finance (Portfolio Allocation)}
+\small
+\begin{itemize}
+  \item \textbf{Arms:} assets/strategies; \textbf{Reward:} returns; \textbf{Risk:} constraints on drawdown/vol.
+  \item \textbf{Adversarial view:} Exp3-like allocation can be robust to regime shifts.
+  \item \textbf{Context:} signals (macro, technical) $\Rightarrow$ contextual bandits.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Hardware/Chiplets (DVFS, Kernel Autotuning, DSE)}
+\small
+\textbf{DVFS:} pick frequency/voltage arm to maximize throughput per watt.\\
+\textbf{Autotuning:} choose tiling/scheduling for kernels; semi-bandit feedback from perf counters.\\
+\textbf{Design-Space Exploration:} arms are micro-architectural configs; reward is latency/area proxy.\\
+\begin{block}{Practice}
+UCB-V/TS work well; add sliding windows for drift across workloads.
+\end{block}
+\end{frame}
+
+\begin{frame}[fragile]{Mini CTR demo: quickly ranking creatives}
+\small
+Data file \texttt{data/ctr_toy.csv} (auto-generated). Simple baseline: \texttt{click-rate} per ad.
+\begin{minted}{python}
+import pandas as pd
+df = pd.read_csv("data/ctr_toy.csv")
+print(df.groupby("ad")["click"].mean().sort_values(ascending=False))
+\end{minted}
+\begin{block}{Upgrade}
+Swap baseline with KL-UCB/TS to allocate traffic adaptively and boost total clicks.
+\end{block}
+\end{frame}
+
+% =========================
+% ADVANCED TOPICS
+% =========================
+\section{Advanced Topics}
+
+\begin{frame}{Contextual Bandits (LinUCB)}
+\small
+Observe context $x_{t,a}$ for each arm; assume $\E[r|x]=x^\top \theta^*$.
+\[
+A_t=\argmax_a \hat{\theta}^\top x_{t,a} + \alpha \sqrt{x_{t,a}^\top V^{-1} x_{t,a}}.
+\]
+Regret $\tilde{\cO}(d\sqrt{T})$.
+\end{frame}
+
+\begin{frame}{Non-stationary bandits}
+\small
+\begin{itemize}
+  \item Sliding-window UCB: use only last $w$ samples.
+  \item Discounted UCB: downweight old data.
+  \item Tune $w$ / discount for change frequency.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Best-arm identification (pure exploration)}
+\small
+\begin{itemize}
+  \item Goal: find the best arm with prob. $\ge 1-\delta$ using fewest samples.
+  \item LUCB / KL-LUCB / Track-and-Stop.
+\end{itemize}
+\end{frame}
+
+% =========================
+% PRACTICAL TIPS
+% =========================
+\section{Practical Tips \& Pitfalls}
+
+\begin{frame}{Implementation tips}
+\small
+\begin{itemize}
+  \item Pull each arm once to avoid division by zero.
+  \item Cap bonuses for numerical stability.
+  \item Handle delays/missing feedback explicitly.
+  \item For adversarial/non-stationary, consider Exp3 or sliding-window UCB.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Common pitfalls}
+\small
+\begin{itemize}
+  \item Using stochastic UCB in adversarial settings.
+  \item Ignoring variance (UCB-V helps).
+  \item Not considering budgets/fairness in production systems.
+\end{itemize}
+\end{frame}
+
+% =========================
+% WRAP-UP
+% =========================
+\section{Takeaways \& Reading}
+
+\begin{frame}{Key takeaways}
+\small
+\begin{itemize}
+  \item Bandits \(\Rightarrow\) principled balance between exploration \& exploitation.
+  \item UCB/KL-UCB/TS: \(\log T\) regret in stochastic; Exp3: \(\sqrt{T}\) in adversarial.
+  \item Industry: ads, recommenders, healthcare, finance, hardware.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Further reading}
+\small
+\begin{itemize}
+  \item Lattimore \& Szepesvári (2020): \emph{Bandit Algorithms}.
+  \item Bubeck \& Cesa-Bianchi (2012): \emph{Regret Analysis of Stochastic and Nonstochastic MAB}.
+  \item Russo et al. (2018): \emph{A Tutorial on Thompson Sampling}.
+\end{itemize}
+\end{frame}
+
+\end{document}
